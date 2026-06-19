@@ -13,6 +13,10 @@
 
 *Deterministic by default. Optional LLM compressor for deeper savings. Adapters for OpenAI, Anthropic, LangChain, CrewAI, and AutoGen. Per-prompt logging built in.*
 
+<br>
+
+<img src="assets/how-it-works.png" alt="How Token Efficiency Agent works: input prompt to optimiser (whitespace, dedupe, few_shot, drop_context, compress) to a smaller output prompt and a per-prompt log, with adapters for OpenAI, Anthropic, LangChain, CrewAI, and AutoGen" width="900">
+
 </div>
 
 ---
@@ -22,7 +26,6 @@
 - [The problem](#the-problem)
 - [TEA in one minute](#tea-in-one-minute)
 - [With vs without TEA](#with-vs-without-tea)
-- [Architecture](#architecture)
 - [Quick start (three paths)](#quick-start-three-paths)
   - [Path A: Python package](#path-a-python-package)
   - [Path B: Claude Code plugin](#path-b-claude-code-plugin)
@@ -85,39 +88,6 @@ TEA optimisation (gpt-4o): 6,200 -> 2,800 tokens (54.8% reduction, 3,400 saved).
 | Cost attribution per prompt | None | Dollars saved per call + running ledger |
 | Works across providers | Re-implement per SDK | One layer: OpenAI, Anthropic, LangChain, CrewAI, AutoGen |
 | Quality risk from optimisation | Unknown | Deterministic transforms are meaning-preserving; LLM compression is opt-in and bounded |
-
----
-
-## Architecture
-
-```
-                    prompt or chat messages
-                              |
-                              v
-   +--------------------------------------------------+
-   |                  tea.optimize()                  |
-   |                                                  |
-   |  1. whitespace   collapse blank runs, keep code  |
-   |  2. dedupe       drop repeated paragraphs/lines  |
-   |  3. few_shot     prune oversized example blocks  |
-   |  4. drop_context drop low-overlap chunks (capped)|
-   |  5. compress     optional LLM compressor (hook)  |
-   +--------------------------------------------------+
-                              |
-                +------------+------------+
-                v                         v
-        optimised prompt           per-prompt log
-        (sent to provider)         jsonl + human + ledger
-                |
-       +--------+--------+--------+--------+--------+
-       v        v        v        v        v        v
-    OpenAI  Anthropic LangChain CrewAI  AutoGen   CLI
-   (each adapter tags the log with its source)
-```
-
-The optimiser calls no provider SDK. Adapters wire it into each framework, and
-all of them route through the same core so the log captures every prompt no
-matter where it enters.
 
 ---
 
