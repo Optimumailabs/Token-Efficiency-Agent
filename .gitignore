@@ -1,5 +1,30 @@
+# Python
 __pycache__/
 *.pyc
-.DS_Store
+*.pyo
 *.egg-info/
+build/
+dist/
+.eggs/
+*.egg
+
+# Virtual envs
 .venv/
+venv/
+env/
+
+# TEA logs
+tea_logs/
+tea_prompts.jsonl
+tea_prompts.log
+tea_ledger.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# VS Code extension build output
+vscode-extension/node_modules/
+vscode-extension/*.vsix
