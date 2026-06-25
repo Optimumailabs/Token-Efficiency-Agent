@@ -141,13 +141,14 @@ too. Marketplace publishing steps are in the
 | Component | What it is |
 |---|---|
 | `tea` package | The optimiser, scorer, token counter, and logging. Zero required deps. |
-| 5 transforms | whitespace, dedupe, few_shot, drop_context, compress |
+| 6 transforms | route, whitespace, dedupe, few_shot, drop_context, compress |
 | 5 framework adapters | OpenAI, Anthropic, LangChain, CrewAI, AutoGen |
 | 2 console commands | `tea-optimize`, `tea-score` |
-| Per-prompt logging | JSONL + human log + cumulative savings ledger + memory stats |
+| Per-prompt logging | JSONL + human log + cumulative savings ledger (with confidence intervals) + memory stats |
+| Cache + measurement controls | `preserve_prefix` for KV-cache hits, `holdout` control group for honest measurement |
 | Claude Code skill | `skills/token-efficiency-agent/SKILL.md` |
 | VS Code extension | `vscode-extension/` |
-| 3 test suites | functional, edge case, logging |
+| 4 test suites | functional, edge case, logging, tier-1 deep |
 
 ---
 
@@ -178,6 +179,7 @@ you use it.
 
 | Transform | Default | Meaning-safe | What it does |
 |---|---|---|---|
+| `route` | on | yes | Classify each block as JSON, code, or prose, then apply the right compressor: minify JSON (key order preserved), strip whole-line code comments by language. Leaves prose to the transforms below. |
 | `whitespace` | on | yes | Collapse blank-line runs and trailing spaces; preserves code fences. |
 | `dedupe` | on | yes | Drop duplicate paragraphs and repeated sentences. |
 | `few_shot` | on | yes | Prune the back half of an oversized few-shot block. |
@@ -194,6 +196,34 @@ tea.optimize(prompt, query=q, enable=tea.AGGRESSIVE_TRANSFORMS, compressor=my_fn
 
 Expect 15 to 35 per cent reduction on bloated prompts from the deterministic
 transforms alone. The LLM compressor goes further at the cost of one model call.
+
+### Keep cached prefixes intact
+
+Most providers only give a prompt-cache discount when the prompt *prefix*
+matches byte-for-byte. Rewriting that prefix can cost more than it saves. Pass
+`preserve_prefix` with your stable leading region (a system block, long fixed
+instructions) and TEA holds it out of every transform, optimising only the
+tail:
+
+```python
+tea.optimize(prompt, query=q, preserve_prefix=SYSTEM_PROMPT)
+```
+
+### Measure honestly, do not guess
+
+Output-token savings are counterfactual: you never see what the model would
+have written for the longer prompt. To get real numbers, hold out a control
+group with `holdout` (a fraction of calls left unoptimised and tagged
+`:control` in the log):
+
+```python
+tea.optimize(prompt, query=q, holdout=0.1)   # ~10% kept as a control
+```
+
+The ledger then reports `savings_kind: "measured"` once a control group
+exists, plus a mean reduction with a 95% confidence interval
+(`reduction_ci95`). With no control group it honestly labels the figure
+`"estimated"`.
 
 ---
 
@@ -340,6 +370,7 @@ pip uninstall token-efficiency-agent
 python -m tea._selftest      # core functional checks
 python -m tea._edgetest      # edge cases: inputs, pipeline, concurrency
 python -m tea._logtest       # logging checks
+python -m tea._tier1test     # routing, cache-prefix, measurement integrity
 ```
 
 ---
@@ -362,7 +393,7 @@ python -m tea._logtest       # logging checks
 ├── scripts/                     repo-local CLIs (skill fallback)
 └── tea/                         the importable package
     ├── __init__.py  optimizer.py  tokens.py  logbook.py  cli.py
-    ├── _selftest.py  _edgetest.py  _logtest.py
+    ├── _selftest.py  _edgetest.py  _logtest.py  _tier1test.py
     └── integrations/            openai, anthropic, langchain, crewai, autogen
 ```
 

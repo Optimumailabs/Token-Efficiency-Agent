@@ -3,6 +3,31 @@
 All notable changes to the Token Efficiency Agent. This project follows
 semantic versioning.
 
+## 0.3.0
+
+### Added
+
+- **Content-aware routing** (`route`, on by default): each block is classified
+  as JSON, code, or prose and gets the right compressor. JSON is minified with
+  key order preserved; whole-line code comments are stripped by language;
+  prose falls through to the safe transforms. Never empties a code block.
+- **Cache-prefix preservation** (`preserve_prefix=`): hold a stable leading
+  region byte-for-byte so provider KV caches keep hitting, optimising only the
+  tail. Handles whole-prompt, over-long, and non-matching prefixes gracefully,
+  and keeps a separator so the prefix is not glued to the body.
+- **Measurement integrity**: `holdout=` leaves a fraction of calls unoptimised
+  as a control group (tagged `:control`); the ledger reports
+  `savings_kind` as `measured` once a control exists or `estimated` otherwise,
+  plus a mean per-call reduction and a 95% confidence interval
+  (`reduction_ci95`) that persists across reloads.
+- Deep tier-1 edge-case suite (`tea/_tier1test.py`), 52 checks.
+
+### Fixed
+
+- Token-count fallback (no tiktoken) undercounted whitespace-poor content like
+  minified JSON, overstating savings. Now uses `max(words * 1.3, chars / 4)`.
+- Stripping comments from an all-comment code block no longer empties it.
+
 ## 0.2.0
 
 ### Added

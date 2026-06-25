@@ -58,13 +58,23 @@ logger pointed at the same directory continues the counts.
 ```json
 {
   "calls": 128,
+  "optimised_calls": 115,
+  "control_calls": 13,
   "tokens_before": 740000,
   "tokens_after": 410000,
   "tokens_saved": 330000,
   "reduction_pct": 44.59,
+  "mean_reduction_pct": 43.10,
+  "reduction_ci95": [40.20, 46.00],
+  "savings_kind": "measured",
   "usd_saved": 0.825
 }
 ```
+
+`savings_kind` is `"measured"` once a control group exists (calls run with
+`holdout` and left unoptimised), otherwise `"estimated"`. `mean_reduction_pct`
+and `reduction_ci95` are the mean per-call reduction on optimised calls and its
+95% confidence interval. These statistics persist across logger reloads.
 
 ## Memory stats
 

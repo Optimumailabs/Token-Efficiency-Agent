@@ -68,28 +68,70 @@ def _process_rss_bytes() -> Optional[int]:
 
 @dataclass
 class Ledger:
-    """Running totals across all logged calls for one logger instance."""
+    """Running totals across all logged calls for one logger instance.
+
+    Beyond the simple sums, the ledger tracks the count, sum, and sum of
+    squares of the per-call reduction percentage on OPTIMISED calls only, so it
+    can report a mean reduction with a 95% confidence interval. Control-group
+    calls (held out of optimisation) are counted separately and excluded from
+    the reduction statistics, because they were never optimised."""
     calls: int = 0
     tokens_before: int = 0
     tokens_after: int = 0
     tokens_saved: int = 0
     usd_saved: float = 0.0
+    # Reduction-percentage statistics over optimised calls.
+    opt_calls: int = 0
+    red_sum: float = 0.0
+    red_sumsq: float = 0.0
+    control_calls: int = 0
 
-    def update(self, before: int, after: int, usd: float) -> None:
+    def update(self, before: int, after: int, usd: float, *, is_control: bool = False) -> None:
         self.calls += 1
         self.tokens_before += before
         self.tokens_after += after
         self.tokens_saved += max(0, before - after)
         self.usd_saved += max(0.0, usd)
+        if is_control:
+            self.control_calls += 1
+        else:
+            self.opt_calls += 1
+            red = (100.0 * (before - after) / before) if before else 0.0
+            self.red_sum += red
+            self.red_sumsq += red * red
+
+    def _ci95(self) -> tuple[float, float, float]:
+        """Return (mean, lo, hi) for the per-call reduction percent on optimised
+        calls, using a normal-approximation 95% CI on the mean. With fewer than
+        two optimised calls the interval is undefined and collapses to the mean."""
+        n = self.opt_calls
+        if n == 0:
+            return 0.0, 0.0, 0.0
+        mean = self.red_sum / n
+        if n < 2:
+            return mean, mean, mean
+        var = max(0.0, (self.red_sumsq - n * mean * mean) / (n - 1))
+        se = (var / n) ** 0.5
+        half = 1.96 * se
+        return mean, max(0.0, mean - half), min(100.0, mean + half)
 
     def as_dict(self) -> dict:
         reduction = (100.0 * self.tokens_saved / self.tokens_before) if self.tokens_before else 0.0
+        mean, lo, hi = self._ci95()
+        # "measured" once a control group exists to compare against; otherwise
+        # the savings are an in-sample estimate.
+        kind = "measured" if self.control_calls > 0 else "estimated"
         return {
             "calls": self.calls,
+            "optimised_calls": self.opt_calls,
+            "control_calls": self.control_calls,
             "tokens_before": self.tokens_before,
             "tokens_after": self.tokens_after,
             "tokens_saved": self.tokens_saved,
             "reduction_pct": round(reduction, 2),
+            "mean_reduction_pct": round(mean, 2),
+            "reduction_ci95": [round(lo, 2), round(hi, 2)],
+            "savings_kind": kind,
             "usd_saved": round(self.usd_saved, 6),
         }
 
@@ -116,12 +158,17 @@ class TEALogger:
         if self.ledger_path.exists():
             try:
                 d = json.loads(self.ledger_path.read_text(encoding="utf-8"))
+                stats = d.get("_stats", {})
                 return Ledger(
                     calls=d.get("calls", 0),
                     tokens_before=d.get("tokens_before", 0),
                     tokens_after=d.get("tokens_after", 0),
                     tokens_saved=d.get("tokens_saved", 0),
                     usd_saved=d.get("usd_saved", 0.0),
+                    opt_calls=stats.get("opt_calls", d.get("optimised_calls", 0)),
+                    red_sum=stats.get("red_sum", 0.0),
+                    red_sumsq=stats.get("red_sumsq", 0.0),
+                    control_calls=stats.get("control_calls", d.get("control_calls", 0)),
                 )
             except Exception:
                 pass
@@ -161,9 +208,10 @@ class TEALogger:
         usd_before = estimate_cost(result.model, before, 0)
         usd_after = estimate_cost(result.model, after, 0)
         usd_saved = max(0.0, usd_before - usd_after)
+        is_control = source.endswith(":control")
 
         with self._lock:
-            self._ledger.update(before, after, usd_saved)
+            self._ledger.update(before, after, usd_saved, is_control=is_control)
             ledger_snapshot = self._ledger.as_dict()
 
             orig_text = self._as_text(result.original)
@@ -208,9 +256,16 @@ class TEALogger:
 
     def _save_ledger(self) -> None:
         try:
-            self.ledger_path.write_text(
-                json.dumps(self._ledger.as_dict(), indent=2), encoding="utf-8"
-            )
+            payload = self._ledger.as_dict()
+            # Persist the raw accumulators so the confidence interval survives a
+            # reload; as_dict() alone only carries derived values.
+            payload["_stats"] = {
+                "opt_calls": self._ledger.opt_calls,
+                "red_sum": self._ledger.red_sum,
+                "red_sumsq": self._ledger.red_sumsq,
+                "control_calls": self._ledger.control_calls,
+            }
+            self.ledger_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         except Exception:
             pass
 

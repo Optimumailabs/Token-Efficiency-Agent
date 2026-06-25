@@ -212,6 +212,137 @@ def _content_tokens(s: str) -> set[str]:
     return {w.lower() for w in re.findall(r"\w+", s) if w.lower() not in _STOPWORDS}
 
 
+# ---------------------------------------------------------------------------
+# Content-aware routing
+# ---------------------------------------------------------------------------
+# Different content compresses best in different ways. A uniform transform
+# leaves easy wins on the table (pretty-printed JSON) or risks corruption
+# (code). The router classifies a block, then applies the safe transform for
+# that type. Everything here stays deterministic.
+
+def classify_block(text: str) -> str:
+    """Classify a text block as 'json', 'code', or 'prose'. Heuristic and
+    conservative: when unsure, returns 'prose', which only ever gets the safe
+    text transforms."""
+    s = text.strip()
+    if not s:
+        return "prose"
+    # Fenced code block.
+    if s.startswith("```") and s.rstrip().endswith("```"):
+        return "code"
+    # JSON: starts and ends with matched braces/brackets and parses.
+    if (s[0] in "{[" and s[-1] in "}]"):
+        try:
+            import json
+            json.loads(s)
+            return "json"
+        except Exception:
+            pass
+    # Code smell: several lines and a high share of code-like punctuation or
+    # common keywords, without being prose-like.
+    lines = s.splitlines()
+    if len(lines) >= 3:
+        code_signals = sum(
+            1 for ln in lines
+            if re.search(r"[;{}]\s*$|^\s*(def |class |function |import |const |let |var |#include|public |private )", ln)
+        )
+        if code_signals >= max(2, len(lines) // 4):
+            return "code"
+    return "prose"
+
+
+def _minify_json(text: str) -> tuple[str, bool]:
+    """Re-serialise JSON with no superfluous whitespace, preserving key order.
+    Returns (minified, changed). Key order is preserved so a stable prefix is
+    not disturbed. Returns the input unchanged if it does not parse."""
+    s = text.strip()
+    try:
+        import json
+        obj = json.loads(s)
+    except Exception:
+        return text, False
+    minified = json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+    return (minified, minified != s)
+
+
+def _strip_code_comments(text: str) -> tuple[str, bool]:
+    """Conservatively strip whole-line comments from a fenced code block, by
+    language when the fence declares one. Inline comments are left alone to
+    avoid touching strings that merely contain a comment marker. Returns
+    (text, changed)."""
+    m = re.match(r"^```([\w+-]*)\n(.*)\n```\s*$", text.strip(), re.DOTALL)
+    if not m:
+        return text, False
+    lang = (m.group(1) or "").lower()
+    body = m.group(2)
+    # Per-language whole-line comment prefixes. Hash covers python/ruby/shell/
+    # yaml; slashes cover c-family/js/go/rust/java.
+    hash_langs = {"python", "py", "ruby", "rb", "bash", "sh", "shell", "yaml", "yml", "r", ""}
+    slash_langs = {"js", "javascript", "ts", "typescript", "go", "rust", "rs",
+                   "java", "c", "cpp", "c++", "cs", "csharp", "kotlin", "swift", "php"}
+    prefixes = []
+    if lang in hash_langs:
+        prefixes.append("#")
+    if lang in slash_langs or lang == "":
+        prefixes.append("//")
+    if not prefixes:
+        return text, False
+    kept = []
+    removed = False
+    for ln in body.split("\n"):
+        stripped = ln.lstrip()
+        if any(stripped.startswith(p) for p in prefixes):
+            removed = True
+            continue
+        kept.append(ln)
+    if not removed:
+        return text, False
+    # Safety: never empty a code block. If every line was a comment, the
+    # comments are the content (a documentation or pseudo-code snippet), so
+    # keep the original verbatim rather than returning an empty fence.
+    if not any(ln.strip() for ln in kept):
+        return text, False
+    new_body = "\n".join(kept)
+    return f"```{m.group(1)}\n{new_body}\n```", True
+
+
+def _route_blocks(text: str, model: str) -> tuple[str, int, dict]:
+    """Split text into blocks, classify each, and apply the type-appropriate
+    deterministic compressor. Returns (text, tokens_saved, type_counts).
+
+    Blocks are separated by blank lines, but fenced code blocks are kept whole
+    even when they contain blank lines."""
+    before = count_tokens(text, model)
+    # Tokenise into fenced-code segments and everything else, then split the
+    # non-code segments on blank lines.
+    parts = re.split(r"(```[\w+-]*\n.*?\n```)", text, flags=re.DOTALL)
+    out_blocks: list[str] = []
+    counts = {"json": 0, "code": 0, "prose": 0}
+    for i, part in enumerate(parts):
+        if not part:
+            continue
+        if i % 2 == 1:  # a fenced code block
+            kind = "code"
+            new_part, changed = _strip_code_comments(part)
+            counts["code"] += 1
+            out_blocks.append(new_part)
+            continue
+        for block in re.split(r"(\n\s*\n)", part):
+            if not block.strip():
+                out_blocks.append(block)
+                continue
+            kind = classify_block(block)
+            counts[kind] += 1
+            if kind == "json":
+                new_block, changed = _minify_json(block)
+                out_blocks.append(new_block if changed else block)
+            else:
+                out_blocks.append(block)
+    routed = "".join(out_blocks)
+    after = count_tokens(routed, model)
+    return routed, max(0, before - after), counts
+
+
 def _drop_low_utility_chunks(
     context: str,
     query: str,
@@ -315,6 +446,7 @@ def optimize_text(
     few_shot_max_ratio: float = 3.0,
     compressor: Optional[Compressor] = None,
     compress_target: float = 0.5,
+    preserve_prefix: Optional[str] = None,
 ) -> OptimizeResult:
     """Optimise a single prompt string.
 
@@ -329,20 +461,47 @@ def optimize_text(
         but context-aware dropping does not.
     model : model id, for token counting.
     enable : set of transform names to run. Default runs the safe set
-        {"whitespace", "dedupe", "few_shot"}. Add "drop_context" to enable
-        relevance-based context dropping (needs `query`). Add "compress" to
-        enable the LLM compressor (needs `compressor`).
+        {"route", "whitespace", "dedupe", "few_shot"}. Add "drop_context" to
+        enable relevance-based context dropping (needs `query`). Add "compress"
+        to enable the LLM compressor (needs `compressor`).
     keep_threshold : relevance score below which a context chunk is dropped.
     few_shot_max_ratio : prune few-shot examples when they exceed this multiple
         of the query size.
     compressor : optional callable (text, target_ratio) -> shorter text.
     compress_target : target length ratio passed to the compressor.
+    preserve_prefix : if given, this exact leading substring of the prompt is
+        held out of every transform, so a cached provider prefix (system block,
+        long stable instructions) stays byte-identical and keeps hitting the
+        KV cache. Optimisation runs only on the remainder. Most providers only
+        cache an exact prefix match, so rewriting it can cost more than it saves.
     """
-    enable = enable if enable is not None else {"whitespace", "dedupe", "few_shot"}
+    enable = enable if enable is not None else {"route", "whitespace", "dedupe", "few_shot"}
     tokens_before = count_tokens(prompt, model)
     transforms: list[TransformResult] = []
     notes: list[str] = []
+
+    # Cache-prefix protection: split off an exact leading region and never
+    # touch it, then reattach it at the end. Only applies when the prompt
+    # actually starts with the given prefix.
+    prefix = ""
     text = prompt
+    if preserve_prefix and prompt.startswith(preserve_prefix):
+        prefix = preserve_prefix
+        text = prompt[len(preserve_prefix):]
+        notes.append(f"preserved a {count_tokens(prefix, model)}-token cache prefix; "
+                     "it was held out of all transforms.")
+    elif preserve_prefix:
+        notes.append("preserve_prefix was given but the prompt does not start with it; ignored.")
+
+    # 0. Content-aware routing: minify JSON, strip whole-line code comments.
+    if "route" in enable:
+        before = count_tokens(text, model)
+        text, saved, kinds = _route_blocks(text, model)
+        after = count_tokens(text, model)
+        if saved > 0:
+            desc = ", ".join(f"{k}:{v}" for k, v in kinds.items() if v)
+            transforms.append(TransformResult("route", before, after,
+                                               f"Routed blocks by type ({desc})."))
 
     # 1. Whitespace and boilerplate normalisation (always safe).
     if "whitespace" in enable:
@@ -415,10 +574,22 @@ def optimize_text(
         else:
             notes.append("compress was enabled but no compressor callable was supplied; skipped.")
 
-    tokens_after = count_tokens(text, model)
+    # Reattach the preserved cache prefix verbatim. Restore a separating blank
+    # line if the prefix did not already end with a newline and the optimised
+    # body does not begin with one, so the prefix is not glued to the next
+    # block. The prefix bytes themselves are never altered, so cache alignment
+    # holds (a stable prefix ends at a deterministic point regardless).
+    if prefix:
+        if not prefix.endswith("\n") and text and not text.startswith("\n"):
+            final_text = prefix + "\n\n" + text
+        else:
+            final_text = prefix + text
+    else:
+        final_text = text
+    tokens_after = count_tokens(final_text, model)
     return OptimizeResult(
         original=prompt,
-        optimized=text,
+        optimized=final_text,
         model=model,
         tokens_before=tokens_before,
         tokens_after=tokens_after,

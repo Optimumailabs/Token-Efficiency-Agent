@@ -28,6 +28,7 @@ pip install -e ".[dev]"
 python -m tea._selftest      # core functional checks
 python -m tea._edgetest      # edge cases: inputs, pipeline, concurrency
 python -m tea._logtest       # logging checks
+python -m tea._tier1test     # routing, cache-prefix, measurement integrity
 ```
 
 All three must pass before a pull request is merged.

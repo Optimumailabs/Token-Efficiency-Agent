@@ -47,19 +47,28 @@ def _encoding_for(model: str):
 def count_tokens(text: str, model: str = _DEFAULT_MODEL) -> int:
     """Count tokens in `text` for `model`.
 
-    Uses tiktoken if present. Falls back to a 1.3 tokens-per-word estimate,
-    which is a reasonable rule of thumb for English. Anthropic models do not
-    ship a public tokenizer, so they also use the cl100k fallback, which
-    over- or under-counts by a few per cent. That is acceptable for relative
-    comparisons (before vs after), which is what the optimizer cares about.
+    Uses tiktoken if present. Otherwise falls back to an approximation that is
+    the larger of two rules of thumb:
+
+    - 1.3 tokens per whitespace word (good for English prose), and
+    - 1 token per 4 characters (the standard byte-pair rule that still works
+      for whitespace-poor content like minified JSON or code).
+
+    Taking the max keeps the estimate honest on dense content. Without the
+    chars/4 floor, minified JSON would read as a single "word" and the
+    optimiser would massively overstate its savings. Anthropic models have no
+    public tokenizer and also use this fallback, off by a few per cent, which
+    is fine for the relative before/after comparison the optimiser relies on.
     """
     if not text:
         return 0
     enc = _encoding_for(model)
     if enc is not None:
         return len(enc.encode(text))
-    words = re.findall(r"\S+", text)
-    return max(1, int(round(len(words) * 1.3)))
+    words = len(re.findall(r"\S+", text))
+    by_words = words * 1.3
+    by_chars = len(text) / 4.0
+    return max(1, int(round(max(by_words, by_chars))))
 
 
 def tokenizer_is_exact(model: str) -> bool:

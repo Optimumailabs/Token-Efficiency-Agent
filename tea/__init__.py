@@ -35,6 +35,7 @@ default so TEA has no hard dependency on any framework.
 
 from __future__ import annotations
 
+import os
 import tracemalloc
 from typing import Optional
 
@@ -54,17 +55,34 @@ from .logbook import (
     resolve_logger,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
-# Default transform set: the safe, deterministic ones.
-SAFE_TRANSFORMS = {"whitespace", "dedupe", "few_shot"}
+# Default transform set: the safe, deterministic ones. "route" classifies each
+# block and minifies JSON / strips whole-line code comments; it never changes
+# prose meaning.
+SAFE_TRANSFORMS = {"route", "whitespace", "dedupe", "few_shot"}
 # Everything, including opt-in context dropping. Compression still needs a
 # compressor callable to actually run.
-AGGRESSIVE_TRANSFORMS = {"whitespace", "dedupe", "few_shot", "drop_context", "compress"}
+AGGRESSIVE_TRANSFORMS = {"route", "whitespace", "dedupe", "few_shot", "drop_context", "compress"}
+
+
+def _holdout_hit(fraction: float, salt) -> bool:
+    """Deterministic-per-content holdout decision without importing random into
+    the hot path's global state. Hashes the content plus os.urandom jitter so
+    roughly `fraction` of calls land in the control group. Using a hash keeps
+    it stateless and thread-safe."""
+    if fraction <= 0:
+        return False
+    if fraction >= 1:
+        return True
+    import hashlib
+    h = hashlib.blake2b(repr(salt).encode("utf-8", "ignore") + os.urandom(8), digest_size=8)
+    bucket = int.from_bytes(h.digest(), "big") / float(1 << 64)
+    return bucket < fraction
 
 
 def optimize(prompt, *, query: Optional[str] = None, log=None,
-             source: str = "api", **kwargs) -> OptimizeResult:
+             source: str = "api", holdout: float = 0.0, **kwargs) -> OptimizeResult:
     """Optimise a prompt. Accepts a string or a list of chat-message dicts.
 
     Logging
@@ -78,20 +96,39 @@ def optimize(prompt, *, query: Optional[str] = None, log=None,
     - a path string: log to a one-off logger at that directory.
     - a TEALogger instance: log to it.
 
-    ``source`` tags where the call came from (api, openai, langchain, cli, ...)
-    and is written into the log record.
+    ``source`` tags where the call came from (api, openai, langchain, cli, ...).
+
+    Measurement integrity
+    ----------------------
+    ``holdout`` is the fraction of calls (0.0 to 1.0) to leave UNOPTIMISED as a
+    control group. Honest output-token savings are counterfactual: we never see
+    what the model would have written for the longer prompt. A control group of
+    untouched prompts lets you compare real downstream cost between optimised
+    and control traffic later, instead of guessing. Held-out calls are returned
+    unchanged and logged with source tagged "<source>:control".
 
     All other keyword arguments are forwarded to ``optimize_text`` or
     ``optimize_messages`` depending on the input type.
     """
     logger = resolve_logger(log)
 
+    # Holdout control group: skip optimisation, return the prompt unchanged.
+    is_control = _holdout_hit(holdout, prompt)
+
     # Only pay for memory tracing when we are actually going to log.
     trace = logger is not None and not tracemalloc.is_tracing()
     if trace:
         tracemalloc.start()
 
-    if isinstance(prompt, str):
+    if is_control:
+        before = count_tokens(prompt, "gpt-4o") if isinstance(prompt, str) else \
+            sum(count_tokens(str(m.get("content", "")), "gpt-4o") for m in prompt)
+        result = OptimizeResult(
+            original=prompt, optimized=prompt, model=kwargs.get("model", "gpt-4o"),
+            tokens_before=before, tokens_after=before, transforms=[],
+            notes=["control: held out of optimisation for honest measurement."],
+        )
+    elif isinstance(prompt, str):
         result = optimize_text(prompt, query=query, **kwargs)
     elif isinstance(prompt, list):
         result = optimize_messages(prompt, **kwargs)
@@ -112,7 +149,8 @@ def optimize(prompt, *, query: Optional[str] = None, log=None,
         if trace:
             tracemalloc.stop()
         try:
-            logger.record(result, query=query, source=source, peak_kib=peak_kib)
+            tag = f"{source}:control" if is_control else source
+            logger.record(result, query=query, source=tag, peak_kib=peak_kib)
         except Exception:
             # Logging must never break the optimisation path.
             pass
