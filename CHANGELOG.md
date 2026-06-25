@@ -3,6 +3,34 @@
 All notable changes to the Token Efficiency Agent. This project follows
 semantic versioning.
 
+## 0.4.0
+
+### Added
+
+- **Output-token cost modelling**: `cost_breakdown()` prices input and output
+  separately at the model's per-token rates (GPT-4o: $2.50 / 1M input,
+  $10.00 / 1M output). Pass `output_tokens=` to `tea.optimize()` and the log
+  record carries a full cost block and `output_kind: measured`; without it the
+  output cost is marked `estimated`.
+- **Word-level red/green diffs** (`tea/difftool.py`): removed words render red
+  with strikethrough, added words green. HTML and ANSI renderers, both
+  stdlib-only. A perf cap falls back to a coarse whole-text diff above 4000
+  word-pieces so large prompts never hang (a 5000-word diff went from ~17s to
+  ~2ms).
+- **Versioned templates** (`tea/templates.py`): pass `template_id=` and TEA
+  keeps an ordered version history per id (v1, v2, ...), each with the diff
+  from the previous version, persisted under the log dir. Identical text does
+  not create a new version; control-group calls never version.
+- **Static HTML dashboard** (`tea/dashboard.py`, `tea-dashboard` command):
+  reads the JSONL log and writes a self-contained page (inline SVG, no deps)
+  with headline cards, input/output token charts, cumulative dollars saved,
+  and a prompt-history table whose rows expand to the red/green diff.
+
+### Fixed
+
+- Word-level diff was O(n*m) and took ~17s on a 5000-word prompt; now capped.
+- Control-group calls no longer create spurious template versions.
+
 ## 0.3.0
 
 ### Added

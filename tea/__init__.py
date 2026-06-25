@@ -54,8 +54,10 @@ from .logbook import (
     get_default_logger,
     resolve_logger,
 )
+from .dashboard import build_dashboard
+from .templates import TemplateStore
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 # Default transform set: the safe, deterministic ones. "route" classifies each
 # block and minifies JSON / strips whole-line code comments; it never changes
@@ -82,7 +84,9 @@ def _holdout_hit(fraction: float, salt) -> bool:
 
 
 def optimize(prompt, *, query: Optional[str] = None, log=None,
-             source: str = "api", holdout: float = 0.0, **kwargs) -> OptimizeResult:
+             source: str = "api", holdout: float = 0.0,
+             output_tokens: Optional[int] = None,
+             template_id: Optional[str] = None, **kwargs) -> OptimizeResult:
     """Optimise a prompt. Accepts a string or a list of chat-message dicts.
 
     Logging
@@ -150,7 +154,8 @@ def optimize(prompt, *, query: Optional[str] = None, log=None,
             tracemalloc.stop()
         try:
             tag = f"{source}:control" if is_control else source
-            logger.record(result, query=query, source=tag, peak_kib=peak_kib)
+            logger.record(result, query=query, source=tag, peak_kib=peak_kib,
+                          output_tokens=output_tokens, template_id=template_id)
         except Exception:
             # Logging must never break the optimisation path.
             pass
@@ -225,5 +230,7 @@ __all__ = [
     "disable_logging",
     "get_default_logger",
     "TEALogger",
+    "build_dashboard",
+    "TemplateStore",
     "__version__",
 ]

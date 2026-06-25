@@ -130,5 +130,27 @@ def score_main(argv=None) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# tea-dashboard
+# ---------------------------------------------------------------------------
+def dashboard_main(argv=None) -> int:
+    p = argparse.ArgumentParser(
+        prog="tea-dashboard",
+        description="Build a self-contained HTML observability dashboard from a TEA log.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p.add_argument("--log", default="tea_logs", help="Log directory to read.")
+    p.add_argument("--out", default=None, help="Output HTML file.")
+    args = p.parse_args(argv)
+    from .dashboard import build_dashboard
+    try:
+        out = build_dashboard(args.log, args.out)
+    except FileNotFoundError as e:
+        print(json.dumps({"error": str(e)}))
+        return 2
+    print(json.dumps({"dashboard": out}, indent=2))
+    return 0
+
+
 if __name__ == "__main__":
     sys.exit(optimize_main())

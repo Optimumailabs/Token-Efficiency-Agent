@@ -153,6 +153,14 @@ class TEALogger:
         self.human = human
         self._lock = threading.Lock()
         self._ledger = self._load_ledger()
+        self._tstore = None
+
+    def _template_store(self):
+        """Lazily build the template store, persisted under this logger's dir."""
+        if self._tstore is None:
+            from .templates import TemplateStore
+            self._tstore = TemplateStore(str(self.dir))
+        return self._tstore
 
     def _load_ledger(self) -> Ledger:
         if self.ledger_path.exists():
@@ -197,18 +205,33 @@ class TEALogger:
         return str(obj)
 
     def record(self, result, *, query: Optional[str] = None,
-               source: str = "api", peak_kib: Optional[float] = None) -> dict:
+               source: str = "api", peak_kib: Optional[float] = None,
+               output_tokens: Optional[int] = None,
+               template_id: Optional[str] = None) -> dict:
         """Append a record for one OptimizeResult. Returns the record dict.
 
         ``source`` names where the call came from (api, openai, langchain, cli,
-        and so on). ``peak_kib`` is the tracemalloc peak for the call if the
-        caller measured it.
+        and so on). ``peak_kib`` is the tracemalloc peak for the call.
+
+        ``output_tokens`` is the length of the model's reply if the caller knows
+        it. Output is the expensive side of the bill, so when supplied it is
+        priced and the record carries a full cost breakdown; otherwise the
+        record marks the output cost ``estimated`` and counts only input.
+
+        ``template_id`` versions the optimised prompt: see TemplateStore.
         """
+        from .tokens import cost_breakdown
+
         before, after = result.tokens_before, result.tokens_after
         usd_before = estimate_cost(result.model, before, 0)
         usd_after = estimate_cost(result.model, after, 0)
         usd_saved = max(0.0, usd_before - usd_after)
         is_control = source.endswith(":control")
+
+        out_known = output_tokens is not None
+        out_tok = int(output_tokens) if out_known else 0
+        cost_before = cost_breakdown(result.model, before, out_tok)
+        cost_after = cost_breakdown(result.model, after, out_tok)
 
         with self._lock:
             self._ledger.update(before, after, usd_saved, is_control=is_control)
@@ -216,6 +239,20 @@ class TEALogger:
 
             orig_text = self._as_text(result.original)
             opt_text = self._as_text(result.optimized)
+
+            # Version the template if an id was given. Control calls are held
+            # out of optimisation, so they must not create a template version;
+            # versioning tracks the evolution of the OPTIMISED prompt only.
+            template_version = None
+            if template_id and not is_control:
+                try:
+                    entry = self._template_store().record_version(
+                        template_id, opt_text, model=result.model)
+                    template_version = {"template_id": template_id,
+                                        "version": entry["version"],
+                                        "diff_from_prev": entry["diff_from_prev"]}
+                except Exception:
+                    pass
 
             record = {
                 "ts": _utc_now_iso(),
@@ -226,12 +263,24 @@ class TEALogger:
                 "tokens_saved": result.tokens_saved,
                 "reduction_pct": round(result.reduction_pct, 2),
                 "usd_saved": round(usd_saved, 6),
+                "output_tokens": out_tok if out_known else None,
+                "output_kind": "measured" if out_known else "estimated",
+                "cost": {
+                    "input_before": round(cost_before["input_cost"], 6),
+                    "input_after": round(cost_after["input_cost"], 6),
+                    "output": round(cost_after["output_cost"], 6),
+                    "total_before": round(cost_before["total_cost"], 6),
+                    "total_after": round(cost_after["total_cost"], 6),
+                    "rate_in_per_m": cost_after["rate_in_per_m"],
+                    "rate_out_per_m": cost_after["rate_out_per_m"],
+                },
                 "transforms": [
                     {"name": t.name, "saved": t.saved, "note": t.note}
                     for t in result.transforms
                 ],
                 "notes": list(result.notes),
                 "query": query,
+                "template": template_version,
                 "memory": {
                     "rss_bytes": _process_rss_bytes(),
                     "peak_kib": round(peak_kib, 1) if peak_kib is not None else None,

@@ -143,12 +143,14 @@ too. Marketplace publishing steps are in the
 | `tea` package | The optimiser, scorer, token counter, and logging. Zero required deps. |
 | 6 transforms | route, whitespace, dedupe, few_shot, drop_context, compress |
 | 5 framework adapters | OpenAI, Anthropic, LangChain, CrewAI, AutoGen |
-| 2 console commands | `tea-optimize`, `tea-score` |
-| Per-prompt logging | JSONL + human log + cumulative savings ledger (with confidence intervals) + memory stats |
+| 3 console commands | `tea-optimize`, `tea-score`, `tea-dashboard` |
+| Per-prompt logging | JSONL + human log + cumulative savings ledger (with confidence intervals) + input/output cost + memory stats |
+| Observability dashboard | self-contained HTML: token/cost charts, prompt history, red/green diffs |
 | Cache + measurement controls | `preserve_prefix` for KV-cache hits, `holdout` control group for honest measurement |
+| Versioned templates | per-`template_id` history with diffs between iterations |
 | Claude Code skill | `skills/token-efficiency-agent/SKILL.md` |
 | VS Code extension | `vscode-extension/` |
-| 4 test suites | functional, edge case, logging, tier-1 deep |
+| 5 test suites | functional, edge case, logging, tier-1 deep, observability |
 
 ---
 
@@ -280,6 +282,50 @@ tea-optimize --prompt-file prompt.txt --query "..." --aggressive --log tea_logs
 
 # Optimise a chat-messages JSON file
 tea-optimize --messages-file chat.json --model gpt-4o
+
+# Build the HTML observability dashboard from a log
+tea-dashboard --log tea_logs --out report.html
+```
+
+---
+
+## Observability dashboard
+
+`tea-dashboard` turns a log into a single self-contained HTML page (inline SVG,
+no server, no dependencies):
+
+```bash
+tea-dashboard --log tea_logs --out report.html
+```
+
+It shows headline cards (calls, tokens before/after, tokens saved, dollars
+saved, optimised vs control), input and output token charts, cumulative
+dollars saved, and a prompt-history table. Each row expands to a word-level
+**red/green diff** of the original vs optimised prompt: red struck-through text
+was removed, green text was added.
+
+### Cost: both sides of the bill
+
+Output tokens are the expensive side (GPT-4o: $2.50 per 1M input, $10.00 per
+1M output). Pass `output_tokens=` so the log prices both:
+
+```python
+tea.optimize(prompt, query=q, output_tokens=180)   # logs input + output cost
+```
+
+Without it, output cost is recorded as `estimated`. TEA only shrinks the input
+prompt directly, so input cost is what it reduces; output is shown for the full
+picture.
+
+### Versioned prompt templates
+
+Pass `template_id=` to keep one maintained template with a version history.
+Each iteration that changes the optimised prompt appends a new version with the
+diff from the previous one, persisted under the log directory and shown in the
+dashboard.
+
+```python
+tea.optimize(prompt, query=q, template_id="support-bot")   # v1, v2, v3, ...
 ```
 
 ---
@@ -371,6 +417,7 @@ python -m tea._selftest      # core functional checks
 python -m tea._edgetest      # edge cases: inputs, pipeline, concurrency
 python -m tea._logtest       # logging checks
 python -m tea._tier1test     # routing, cache-prefix, measurement integrity
+python -m tea._obstest       # cost, diffs, templates, dashboard
 ```
 
 ---
@@ -393,7 +440,8 @@ python -m tea._tier1test     # routing, cache-prefix, measurement integrity
 ├── scripts/                     repo-local CLIs (skill fallback)
 └── tea/                         the importable package
     ├── __init__.py  optimizer.py  tokens.py  logbook.py  cli.py
-    ├── _selftest.py  _edgetest.py  _logtest.py  _tier1test.py
+    ├── difftool.py  templates.py  dashboard.py
+    ├── _selftest.py  _edgetest.py  _logtest.py  _tier1test.py  _obstest.py
     └── integrations/            openai, anthropic, langchain, crewai, autogen
 ```
 

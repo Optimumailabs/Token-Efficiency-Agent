@@ -77,6 +77,25 @@ def tokenizer_is_exact(model: str) -> bool:
 
 
 def estimate_cost(model: str, n_prompt: int, n_completion: int) -> float:
-    """Estimated dollar cost for a single call in USD."""
+    """Estimated dollar cost for a single call in USD (input + output)."""
     rates = PRICING_USD_PER_M.get(model, PRICING_USD_PER_M[_DEFAULT_MODEL])
     return (n_prompt * rates["prefill"] + n_completion * rates["decode"]) / 1_000_000
+
+
+def cost_breakdown(model: str, n_prompt: int, n_completion: int = 0) -> dict:
+    """Split dollar cost into input and output, at the model's per-token rates.
+
+    Output is the expensive side: for GPT-4o, input is $2.50 per million tokens
+    and output is $10.00 per million. The optimiser shrinks the input prompt,
+    so input_cost is what TEA directly reduces; output_cost is shown for the
+    full picture and depends on how long the model's reply is."""
+    rates = PRICING_USD_PER_M.get(model, PRICING_USD_PER_M[_DEFAULT_MODEL])
+    input_cost = n_prompt * rates["prefill"] / 1_000_000
+    output_cost = n_completion * rates["decode"] / 1_000_000
+    return {
+        "input_cost": input_cost,
+        "output_cost": output_cost,
+        "total_cost": input_cost + output_cost,
+        "rate_in_per_m": rates["prefill"],
+        "rate_out_per_m": rates["decode"],
+    }
