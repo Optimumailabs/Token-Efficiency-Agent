@@ -57,7 +57,7 @@ from .logbook import (
 from .dashboard import build_dashboard
 from .templates import TemplateStore
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 # Default transform set: the safe, deterministic ones. "route" classifies each
 # block and minifies JSON / strips whole-line code comments; it never changes
@@ -125,10 +125,11 @@ def optimize(prompt, *, query: Optional[str] = None, log=None,
         tracemalloc.start()
 
     if is_control:
-        before = count_tokens(prompt, "gpt-4o") if isinstance(prompt, str) else \
-            sum(count_tokens(str(m.get("content", "")), "gpt-4o") for m in prompt)
+        model = kwargs.get("model", "gpt-4o")
+        before = count_tokens(prompt, model) if isinstance(prompt, str) else \
+            sum(count_tokens(str(m.get("content", "")), model) for m in prompt)
         result = OptimizeResult(
-            original=prompt, optimized=prompt, model=kwargs.get("model", "gpt-4o"),
+            original=prompt, optimized=prompt, model=model,
             tokens_before=before, tokens_after=before, transforms=[],
             notes=["control: held out of optimisation for honest measurement."],
         )

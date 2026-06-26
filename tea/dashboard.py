@@ -95,6 +95,17 @@ def build_dashboard(log_dir: str, out_file: Optional[str] = None) -> str:
     out_total = sum((r.get("output_tokens") or 0) for r in records)
     reduction = (100.0 * tok_saved / tok_before) if tok_before else 0.0
 
+    # Per-model breakdown so the dashboard shows which models were actually
+    # used, not a single assumed default.
+    by_model: dict[str, dict] = {}
+    for r in records:
+        m = r.get("model", "unknown")
+        agg = by_model.setdefault(m, {"calls": 0, "before": 0, "after": 0, "usd": 0.0})
+        agg["calls"] += 1
+        agg["before"] += r.get("tokens_before", 0)
+        agg["after"] += r.get("tokens_after", 0)
+        agg["usd"] += r.get("usd_saved", 0.0)
+
     # Latest ledger snapshot, if present, carries the CI.
     ledger = records[-1].get("ledger", {}) if records else {}
 
@@ -119,15 +130,16 @@ def build_dashboard(log_dir: str, out_file: Optional[str] = None) -> str:
         rows.append(
             "<tr class='row' onclick='this.nextElementSibling.classList.toggle(\"open\")'>"
             f"<td>{i}</td><td>{html.escape(str(r.get('source','')))}</td>"
+            f"<td>{html.escape(str(r.get('model','')))}</td>"
             f"<td>{r.get('tokens_before',0):,}</td><td>{r.get('tokens_after',0):,}</td>"
             f"<td>{r.get('reduction_pct',0)}%</td>"
             f"<td>${r.get('usd_saved',0.0):.5f}</td>"
             f"<td>{html.escape(tlabel)}</td></tr>"
-            f"<tr class='diff'><td colspan='7'><div class='diffbox'>{d}</div></td></tr>"
+            f"<tr class='diff'><td colspan='8'><div class='diffbox'>{d}</div></td></tr>"
         )
 
     if calls == 0:
-        rows.append("<tr><td colspan='7'>No records in the log yet.</td></tr>")
+        rows.append("<tr><td colspan='8'>No records in the log yet.</td></tr>")
 
     def card(label, value):
         return (f"<div class='card'><div class='cv'>{value}</div>"
@@ -151,6 +163,21 @@ def build_dashboard(log_dir: str, out_file: Optional[str] = None) -> str:
                    f"{ledger.get('mean_reduction_pct','?')}% "
                    f"(95% CI {ci[0]}%..{ci[1]}%), savings "
                    f"<b>{ledger.get('savings_kind','estimated')}</b>.</p>")
+
+    # Per-model breakdown table.
+    model_rows = []
+    for m, agg in sorted(by_model.items(), key=lambda kv: -kv[1]["calls"]):
+        red = (100.0 * (agg["before"] - agg["after"]) / agg["before"]) if agg["before"] else 0.0
+        model_rows.append(
+            f"<tr><td>{html.escape(m)}</td><td>{agg['calls']:,}</td>"
+            f"<td>{agg['before']:,}</td><td>{agg['after']:,}</td>"
+            f"<td>{red:.1f}%</td><td>${agg['usd']:.5f}</td></tr>"
+        )
+    model_table = (
+        "<table><thead><tr><th>model</th><th>calls</th><th>in (before)</th>"
+        "<th>in (after)</th><th>reduction</th><th>$ saved</th></tr></thead>"
+        f"<tbody>{''.join(model_rows) or '<tr><td colspan=6>no records</td></tr>'}</tbody></table>"
+    )
 
     page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -184,6 +211,8 @@ def build_dashboard(log_dir: str, out_file: Optional[str] = None) -> str:
 {ci_line}
 <div class="cards">{cards}</div>
 
+<div class="panel"><h2>By model</h2>{model_table}</div>
+
 <div class="panel"><h2>Input tokens per call</h2>{_svg_line(in_series, color="#2b6cb0", label="input tokens per call")}</div>
 <div class="panel"><h2>Output tokens per call</h2>{_svg_line(out_series, color="#d69e2e", label="output tokens per call")}</div>
 <div class="panel"><h2>Cumulative input dollars saved</h2>{_svg_line(cum, color="#48c9b0", label="cumulative dollars saved")}</div>
@@ -192,7 +221,7 @@ def build_dashboard(log_dir: str, out_file: Optional[str] = None) -> str:
   <h2>Prompt history</h2>
   <p class="legend"><span style="color:#4ade80">green = added</span><span style="color:#f87171">red = removed</span><span style="color:#94a3b8">click a row to expand the diff</span></p>
   <table>
-    <thead><tr><th>#</th><th>source</th><th>in (before)</th><th>in (after)</th><th>reduction</th><th>$ saved</th><th>template</th></tr></thead>
+    <thead><tr><th>#</th><th>source</th><th>model</th><th>in (before)</th><th>in (after)</th><th>reduction</th><th>$ saved</th><th>template</th></tr></thead>
     <tbody>{''.join(rows)}</tbody>
   </table>
 </div>

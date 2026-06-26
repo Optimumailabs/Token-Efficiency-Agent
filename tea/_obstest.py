@@ -160,6 +160,31 @@ def main() -> int:
         ok &= check("control calls create no template versions",
                     len(TemplateStore(str(d_ctrl)).history("cv")) == 0)
 
+        # 18b. The caller's model must flow through on BOTH paths, including
+        #      the held-out control path (regression: it used to hardcode gpt-4o).
+        d_model = tmp / "modelflow"
+        tea.optimize("dup phrase right here now. dup phrase right here now.\n\ntail body.",
+                     query="dup", model="claude-sonnet-4-6", enable={"dedupe"},
+                     log=str(d_model))                                  # optimised
+        tea.optimize("another dup phrase here today. another dup phrase here today.\n\nmore.",
+                     query="dup", model="claude-haiku-4-5", enable={"dedupe"},
+                     log=str(d_model), holdout=1.0)                     # control
+        recs = [json.loads(l) for l in (d_model / "tea_prompts.jsonl")
+                .read_text(encoding="utf-8").strip().splitlines()]
+        ok &= check("optimised call keeps caller model", recs[0]["model"] == "claude-sonnet-4-6")
+        ok &= check("control call keeps caller model (no gpt-4o leak)",
+                    recs[1]["model"] == "claude-haiku-4-5")
+        ok &= check("control call priced at caller-model rates",
+                    recs[1]["cost"]["rate_in_per_m"] == 1.0
+                    and recs[1]["cost"]["rate_out_per_m"] == 5.0)
+
+        # 18c. Dashboard surfaces every model used, not a single default.
+        out = build_dashboard(str(d_model))
+        page = Path(out).read_text(encoding="utf-8")
+        ok &= check("dashboard has a By model panel", "By model" in page)
+        ok &= check("dashboard shows both models",
+                    "claude-sonnet-4-6" in page and "claude-haiku-4-5" in page)
+
         # ===================================================================
         # Output cost in the log record
         # ===================================================================

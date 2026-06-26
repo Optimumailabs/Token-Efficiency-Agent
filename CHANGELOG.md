@@ -3,6 +3,23 @@
 All notable changes to the Token Efficiency Agent. This project follows
 semantic versioning.
 
+## 0.4.1
+
+### Fixed
+
+- Model leak: held-out control calls hardcoded `gpt-4o` for token counting and
+  in the log record, so non-gpt-4o traffic was mislabelled and mispriced.
+  Control calls now use the caller's `model` like every other path.
+
+### Added
+
+- Dashboard now surfaces the model: a "By model" breakdown panel (calls,
+  tokens, reduction, dollars per model) and a model column in the prompt
+  history, so it never looks like everything ran on one default model.
+- Regression tests asserting the caller's model flows through on both the
+  optimised and control paths, is priced at that model's rates, and appears in
+  the dashboard.
+
 ## 0.4.0
 
 ### Added
