@@ -3,6 +3,23 @@
 All notable changes to the Token Efficiency Agent. This project follows
 semantic versioning.
 
+## 0.4.2
+
+### Added
+
+- `scripts/dashboard.py`: a no-install dashboard CLI mirroring the optimize and
+  score scripts, so a fresh clone or fork can build the HTML dashboard without
+  `pip install`. The skill now documents all three no-install scripts.
+- README "Run from a fork, no install" section: a fork runs the Python API, all
+  three bundled scripts, the dashboard, and the five test suites with zero
+  required dependencies. Verified end-to-end from a clean copy.
+
+### Changed
+
+- Normalised all repository URLs from the old `Token-Efficiency-Agent` path to
+  the canonical `Optimumailabs/tea` across the README, pyproject, plugin
+  manifest, CONTRIBUTING, the publish workflow, and the VS Code extension.
+
 ## 0.4.1
 
 ### Fixed

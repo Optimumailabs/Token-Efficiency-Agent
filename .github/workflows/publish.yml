@@ -8,9 +8,9 @@ name: Build and publish
 # Python wheels. The practical equivalents for a Python package are:
 #   1. Attach the built wheel/sdist to the GitHub Release (done below). Users
 #      then install with:
-#         pip install https://github.com/Optimumailabs/Token-Efficiency-Agent/releases/download/v0.2.0/token_efficiency_agent-0.2.0-py3-none-any.whl
+#         pip install https://github.com/Optimumailabs/tea/releases/download/v0.2.0/token_efficiency_agent-0.2.0-py3-none-any.whl
 #   2. Install straight from the repo at any time, no release needed:
-#         pip install "git+https://github.com/Optimumailabs/Token-Efficiency-Agent.git"
+#         pip install "git+https://github.com/Optimumailabs/tea.git"
 #   3. Publish to PyPI (the publish-pypi job; needs the PYPI_API_TOKEN secret).
 
 on:

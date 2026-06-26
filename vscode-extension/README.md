@@ -2,7 +2,7 @@
 
 Optimise the selected prompt text in any editor and see how many tokens were
 saved, without leaving VS Code. The extension wraps the
-[TEA Python package](https://github.com/Optimumailabs/Token-Efficiency-Agent);
+[TEA Python package](https://github.com/Optimumailabs/tea);
 it shells out to it, so the package must be installed in the interpreter you
 point the extension at.
 

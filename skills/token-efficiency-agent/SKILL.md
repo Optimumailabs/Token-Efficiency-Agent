@@ -20,11 +20,14 @@ real application, not just from this skill.
 
 Two ways, in priority order:
 
-1. If the package is pip-installed, use the console commands `tea-optimize`
-   and `tea-score`. These are on PATH after `pip install token-efficiency-agent`.
+1. If the package is pip-installed, use the console commands `tea-optimize`,
+   `tea-score`, and `tea-dashboard`. These are on PATH after
+   `pip install token-efficiency-agent`.
 2. Otherwise run the bundled scripts with the plugin root, which Claude Code
    exposes as the `CLAUDE_PLUGIN_ROOT` environment variable:
-   `python "$CLAUDE_PLUGIN_ROOT/scripts/optimize.py" ...`
+   `python "$CLAUDE_PLUGIN_ROOT/scripts/optimize.py" ...`,
+   `.../scripts/score.py`, `.../scripts/dashboard.py`. These need no install;
+   they import the bundled `tea` package directly.
 
 Both accept the same flags. Examples below show the console form first.
 

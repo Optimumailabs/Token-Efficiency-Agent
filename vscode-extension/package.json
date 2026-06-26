@@ -11,10 +11,10 @@
   "galleryBanner": { "color": "#1A5276", "theme": "dark" },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Optimumailabs/Token-Efficiency-Agent"
+    "url": "https://github.com/Optimumailabs/tea"
   },
-  "bugs": { "url": "https://github.com/Optimumailabs/Token-Efficiency-Agent/issues" },
-  "homepage": "https://github.com/Optimumailabs/Token-Efficiency-Agent#readme",
+  "bugs": { "url": "https://github.com/Optimumailabs/tea/issues" },
+  "homepage": "https://github.com/Optimumailabs/tea#readme",
   "license": "MIT",
   "main": "./extension.js",
   "activationEvents": [],

@@ -6,8 +6,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org)
-[![PyPI](https://img.shields.io/badge/pip-token--efficiency--agent-brightgreen.svg)](https://github.com/Optimumailabs/Token-Efficiency-Agent)
-[![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2.svg)](https://github.com/Optimumailabs/Token-Efficiency-Agent)
+[![PyPI](https://img.shields.io/badge/pip-token--efficiency--agent-brightgreen.svg)](https://github.com/Optimumailabs/tea)
+[![Claude Code Plugin](https://img.shields.io/badge/Claude%20Code-plugin-8A2BE2.svg)](https://github.com/Optimumailabs/tea)
 [![VS Code](https://img.shields.io/badge/VS%20Code-extension-007ACC.svg)](vscode-extension/)
 [![Dependencies](https://img.shields.io/badge/runtime%20deps-0-success.svg)](pyproject.toml)
 
@@ -100,7 +100,7 @@ TEA optimisation (gpt-4o): 6,200 -> 2,800 tokens (54.8% reduction, 3,400 saved).
 pip install token-efficiency-agent
 
 # Straight from GitHub, no release needed
-pip install "git+https://github.com/Optimumailabs/Token-Efficiency-Agent.git"
+pip install "git+https://github.com/Optimumailabs/tea.git"
 
 # Optional extras
 pip install "token-efficiency-agent[all]"   # tiktoken (exact tokens) + psutil (RSS memory)
@@ -117,7 +117,7 @@ cheaper = result.optimized
 This repo is a Claude Code plugin. In Claude Code, run:
 
 ```text
-/plugin marketplace add Optimumailabs/Token-Efficiency-Agent
+/plugin marketplace add Optimumailabs/tea
 /plugin install token-efficiency-agent@token-efficiency-agent
 ```
 
@@ -133,6 +133,32 @@ Install the extension in [`vscode-extension/`](vscode-extension/). It adds
 (also on the right-click menu). It wraps the Python package, so install that
 too. Marketplace publishing steps are in the
 [extension README](vscode-extension/README.md).
+
+### Run from a fork, no install
+
+Fork or clone the repo and everything runs with zero install: the `tea`
+package has no required dependencies, and the bundled scripts add the repo root
+to `sys.path` themselves.
+
+```bash
+git clone https://github.com/Optimumailabs/tea.git
+cd tea
+
+# Python API
+python -c "import tea; print(tea.optimize('a\n\na\n\nb', model='gpt-4o').summary())"
+
+# Bundled scripts (same flags as the installed tea-* commands)
+python scripts/optimize.py  --prompt-file prompt.txt --query "..." --aggressive --log tea_logs
+python scripts/score.py     --prompt-file prompt.txt --query "..."
+python scripts/dashboard.py --log tea_logs --out report.html   # then open report.html
+
+# Run the test suites
+python -m tea._selftest && python -m tea._edgetest && python -m tea._logtest \
+  && python -m tea._tier1test && python -m tea._obstest
+```
+
+Optional: `pip install tiktoken` for exact token counts and `psutil` for RSS
+memory in the logs. Both are optional; TEA falls back gracefully without them.
 
 ---
 
@@ -437,7 +463,7 @@ python -m tea._obstest       # cost, diffs, templates, dashboard
 ├── docs/                        deeper guides (math, integrations, logging)
 ├── .github/workflows/publish.yml
 ├── vscode-extension/            VS Code editor extension
-├── scripts/                     repo-local CLIs (skill fallback)
+├── scripts/                     repo-local CLIs, no install needed (optimize, score, dashboard)
 └── tea/                         the importable package
     ├── __init__.py  optimizer.py  tokens.py  logbook.py  cli.py
     ├── difftool.py  templates.py  dashboard.py

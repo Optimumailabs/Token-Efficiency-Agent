@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "token-efficiency-agent"
-version = "0.4.1"
+version = "0.4.2"
 description = "Measure and cut wasted tokens in LLM prompts. Deterministic transforms plus an optional LLM compressor, with adapters for OpenAI, Anthropic, LangChain, CrewAI, and AutoGen."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -30,8 +30,8 @@ all = ["tiktoken>=0.5", "psutil>=5.9"]
 dev = ["pytest>=7", "tiktoken>=0.5", "psutil>=5.9"]
 
 [project.urls]
-Homepage = "https://github.com/Optimumailabs/Token-Efficiency-Agent"
-Repository = "https://github.com/Optimumailabs/Token-Efficiency-Agent"
+Homepage = "https://github.com/Optimumailabs/tea"
+Repository = "https://github.com/Optimumailabs/tea"
 
 [project.scripts]
 tea-optimize = "tea.cli:optimize_main"

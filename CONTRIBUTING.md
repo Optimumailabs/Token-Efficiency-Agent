@@ -17,8 +17,8 @@ changes is mostly about keeping it safe and well-tested.
 ## Development setup
 
 ```bash
-git clone https://github.com/Optimumailabs/Token-Efficiency-Agent.git
-cd Token-Efficiency-Agent
+git clone https://github.com/Optimumailabs/tea.git
+cd tea
 pip install -e ".[dev]"
 ```
 

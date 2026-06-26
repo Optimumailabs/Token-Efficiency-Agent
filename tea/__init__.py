@@ -57,7 +57,7 @@ from .logbook import (
 from .dashboard import build_dashboard
 from .templates import TemplateStore
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
 # Default transform set: the safe, deterministic ones. "route" classifies each
 # block and minifies JSON / strips whole-line code comments; it never changes
